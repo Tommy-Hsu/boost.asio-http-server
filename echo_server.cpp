@@ -128,7 +128,7 @@ class session
                 std::cout << "EXEC_FILE: " << getenv("EXEC_FILE") << std::endl;
                 std::cout << "REQUEST_METHOD: " << getenv("REQUEST_METHOD") << std::endl;
                 std::cout << "REQUEST_URI: " << getenv("REQUEST_URI") << std::endl;
-                //std::cout << "QUERY_STRING: " << getenv("QUERY_STRING") << std::endl;
+                std::cout << "QUERY_STRING: " << getenv("QUERY_STRING") << std::endl;
                 std::cout << "SERVER_PROTOCOL: " << getenv("SERVER_PROTOCOL") << std::endl;
                 std::cout << "HTTP_HOST: " << getenv("HTTP_HOST") << std::endl;
                 std::cout << "SERVER_ADDR: " << getenv("SERVER_ADDR") << std::endl;

@@ -3,6 +3,7 @@
 #include <memory>
 #include <utility>
 #include <boost/asio.hpp>
+#include <boost/asio/buffer.hpp>
 
 using boost::asio::ip::tcp;
 
