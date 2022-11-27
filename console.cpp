@@ -5,6 +5,7 @@
 #include <vector>
 #include <utility>
 #include <memory>
+#include <regex>
 #include <boost/asio/io_context.hpp>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
@@ -22,8 +23,6 @@ std::string port_number[MAX_SESSION];
 std::string file_name[MAX_SESSION];
 std::vector <std::string> cmds[MAX_SESSION+1];
 
-//vector <string> m;
-
 void Parse_QUERY_STRING()
 {
    string q = getenv("QUERY_STRING");
@@ -39,11 +38,6 @@ void Parse_QUERY_STRING()
          //cout<<id<<endl;
          host_name[id] = it->substr(it->find("=")+1);
          //cout<<host_name[id]<<endl;
-
-         // if(it->substr(it->find("=")+1).size()>1)
-         // {
-         //    host_num++;
-         // }
       }
       if(it->at(0) == 'p')
       {
@@ -145,7 +139,6 @@ class Session : public std::enable_shared_from_this<Session>
       
       enum { max_length = 1024 };
       char data_[max_length];
-      char temp[max_length];
       std::string host_n;
       std::string host_p;
 
@@ -207,7 +200,7 @@ class Session : public std::enable_shared_from_this<Session>
         void do_send_cmd()
         {
             auto self(shared_from_this());
-            socket_.async_send(boost::asio::buffer(cmds[session_id][cmd_idx]+"\r\n"),
+            socket_.async_send(boost::asio::buffer(cmds[session_id][cmd_idx]+"\n"),
                [this, self](boost::system::error_code ec, size_t /* length */) 
                {
                   if (!ec)
@@ -224,9 +217,12 @@ class Session : public std::enable_shared_from_this<Session>
             auto self(shared_from_this());
             socket_.async_read_some(boost::asio::buffer(data_, max_length),
                 [this, self](boost::system::error_code ec, std::size_t length) {
+
                 if (!ec)
                 {    
+
                      std::string o = string(data_);
+                     memset(data_, 0, sizeof data_);
                      //replace_string(o);
 
                      if (o.find("%") != std::string::npos)
@@ -239,20 +235,8 @@ class Session : public std::enable_shared_from_this<Session>
                         std::cout << "<script>document.getElementById('s" << session_id << "').innerHTML += '<b>" << "% " << "</b>';</script>" << std::endl;
                         std::cout.flush();
                         //output_prompt(std::to_string(s_id));
-                    }
-                    else
-                    {
-                        std::string t = o;
-                        replace_string(t);
-                        std::cout << "<script>document.getElementById('s" << session_id << "').innerHTML += '" << t <<"';</script>" << std::endl;
-                        std::cout.flush();
-                        //output_shell(std::to_string(s_id), recv_str);
-                    }
-                    
-                    if (o.find("%") != std::string::npos)
-                    { 
                         usleep(100000);
-                        std::string t = cmds[session_id][cmd_idx];
+                        t = cmds[session_id][cmd_idx];
                         replace_string(t);
                         std::cout << "<script>document.getElementById('s" << session_id << "').innerHTML += '<b>" << t << "&NewLine;</b>';</script>" << std::endl;
                         std::cout.flush();
@@ -260,10 +244,16 @@ class Session : public std::enable_shared_from_this<Session>
 
                         usleep(100000);
                         do_send_cmd();
+                        //usleep(100000);
                     }
                     else
                     {
+                        std::string t = o;
+                        replace_string(t);
+                        std::cout << "<script>document.getElementById('s" << session_id << "').innerHTML += '" << t <<"';</script>" << std::endl;
+                        std::cout.flush();
                         do_read();
+                        //output_shell(std::to_string(s_id), recv_str);
                     }
                 }
                 else
@@ -310,10 +300,9 @@ int main (int argc, char* argv[]) {
 
    try 
    {  
-      boost::asio::io_context io_context;
       Parse_QUERY_STRING();
       Show_HTML();
-
+      boost::asio::io_context io_context;
       for (int i = 0; i < 5; i++)
       {
          if (host_name[i] == "")
