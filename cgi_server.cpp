@@ -11,17 +11,131 @@
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/format.hpp>
+#include <boost/asio/buffer.hpp>
 #include <boost/algorithm/string.hpp>
 
-#define MAX_SESSION 5
+#define MAX_SERVERS 5
 
 using boost::asio::ip::tcp;
 using namespace std;
 
 boost::asio::io_context io_context;
-std::string host_name[MAX_SESSION];
-std::string port_number[MAX_SESSION];
-std::string file_name[MAX_SESSION];
+std::string host_name[MAX_SERVERS];
+std::string port_number[MAX_SERVERS];
+std::string file_name[MAX_SERVERS];
+
+class Server : public std::enable_shared_from_this<Server> 
+{
+    private:
+        tcp::socket client_socket_; // 面對 client 端
+        tcp::socket server_socket_{io_context}; // 面對 server 端，還需被創造
+        tcp::resolver resolv_{io_context};
+        tcp::resolver::query query_;
+        std::fstream file_;
+        enum { max_length = 20480 };
+        char data_[max_length];
+        int serverid;
+
+    public:
+        Server(tcp::socket socket, std::string host_n, std::string host_p, std::string file, int serverid)
+            : client_socket_(move(socket)), query_{host_n, host_p}, serverid(serverid)
+        {
+            file_.open("test_case/" + file, ios::in);
+        }
+        void start() { do_resolve(); }
+
+    private:
+        void do_resolve() 
+        {
+            auto self(shared_from_this());
+            resolv_.async_resolve(query_, [this, self](boost::system::error_code ec, tcp::resolver::iterator it)
+            {
+                if(!ec)
+                    do_connect(it);//std::cout<< "success to resolve to np_server "<< to_string(serverid) << std::endl;
+                else
+                    std::cerr << "can't resolve to np_server "<< to_string(serverid) << std::endl;
+            });
+        }
+
+        void do_connect(tcp::resolver::iterator it)
+        {
+            auto self(shared_from_this());
+            server_socket_.async_connect(*it, [this, self](boost::system::error_code ec)
+            {
+                if (!ec)
+                {
+                  //std::cout<< "success to connect to np_server "<< to_string(serverid) << std::endl;
+                  //server_socket_.close();
+                  do_read();
+                }
+                else
+                  std::cerr << "can't connect to np_server" << std::endl;
+            });
+        }
+
+        void do_read() 
+        {
+            auto self(shared_from_this());
+            server_socket_.async_read_some(boost::asio::buffer(data_, max_length),
+                [this, self](boost::system::error_code ec, std::size_t length) 
+            {
+                if (!ec)
+                {    
+                    //cout<<" Server "<< serverid <<" keep reading..." <<endl;
+                    bool iscmd = false;
+                    string rec(data_, data_ + length);
+                    //boost::asio::write(client_socket_, boost::asio::buffer(replace_string(rec, iscmd)));
+                    console_write(replace_string(rec, iscmd));
+                    if (rec.find("% ") != string::npos)
+                    {
+                        iscmd = true;
+                        string cmd;
+                        getline(file_, cmd);
+                        cmd += "\n";
+                        //boost::asio::write(client_socket_, boost::asio::buffer(replace_string(cmd, iscmd)));
+                        console_write(replace_string(cmd, iscmd));
+                        server_socket_.write_some(boost::asio::buffer(cmd));
+                    }
+                }
+                do_read();
+            });
+        }
+
+        void console_write(string resp)
+        {
+            auto self(shared_from_this());
+            client_socket_.async_write_some(boost::asio::buffer(resp, resp.length()),
+            [this, self](boost::system::error_code ec, size_t length)
+            {
+                if(!ec)
+                {
+                    // No err
+                }
+                // else
+                //     perror("server couldn't write back client_socket_");
+            });
+        }
+
+        string replace_string(string data, bool iscmd) 
+        {
+            boost::replace_all(data, "<", "&lt;");
+            boost::replace_all(data, ">", "&gt;");
+            boost::replace_all(data, " ", "&nbsp;");
+            boost::replace_all(data, "\"", "&quot;");
+            boost::replace_all(data, "\'", "&apos;");
+            boost::replace_all(data, "\r", "");
+            boost::replace_all(data, "\n", "&NewLine;");
+            boost::replace_all(data, "<", "&lt;");
+
+            if(iscmd)
+                data = "<script>document.getElementById('s" + to_string(serverid) + "').innerHTML += '<b>" + data + "</b>';</script>";
+            else 
+                data = "<script>document.getElementById('s" + to_string(serverid) + "').innerHTML += '" + data + "';</script>";
+
+            return data;
+        }
+
+};
 
 class Session
   : public std::enable_shared_from_this<Session>
@@ -212,6 +326,12 @@ class Session
             Parse_QUERY_STRING();
             Show_Console();
 
+            for(int i = 0; i < MAX_SERVERS; i++)
+            {
+                if(host_name[i] != "")
+                    make_shared<Server>(move(socket_), host_name[i], port_number[i], file_name[i], i)->start();
+            }
+
         }
 
         void Parse_QUERY_STRING()
@@ -241,7 +361,7 @@ class Session
 
             cout << "----------Open Servers--------" << endl;
             cout<<"\n";
-            for(int t = 0; t < MAX_SESSION; t++)
+            for(int t = 0; t < MAX_SERVERS; t++)
             {
                 if(host_name[t] != "")
                 {
@@ -264,7 +384,7 @@ class Session
             "HTTP/1.1 200 OK\r\n"
             "Content-type: text/html\r\n\r\n";
 
-            for(int i = 0; i < MAX_SESSION; i++)
+            for(int i = 0; i < MAX_SERVERS; i++)
             {
                 if(host_name[i].empty())
                     break;
@@ -272,7 +392,7 @@ class Session
                 tdata += "<td><pre id=\"s" + to_string(i) + "\" class=\"mb-0\"></pre></td>\n";
             }
 
-            char s[4096];
+            char s[max_length];
             sprintf(s, R"(
             
             <!DOCTYPE html>
@@ -337,7 +457,7 @@ class Session
         }
 
     tcp::socket socket_;
-    enum { max_length = 1024 };
+    enum { max_length = 20480 };
     char data_[max_length];
     char temp[max_length];
     char REQUEST_METHOD[max_length];
@@ -378,21 +498,6 @@ class CGI_server
     }
 
     tcp::acceptor acceptor_;
-};
-
-class Server : public std::enable_shared_from_this<Server> 
-{
-
-
-    tcp::socket client_socket_;
-    tcp::socket server_socket_;
-    tcp::resolver resolv_;
-    tcp::resolver::query query_;
-    fstream file_;
-    enum { max_length = 1024 };
-    char data_[max_length];
-    int session_id;
-
 };
 
 int main(int argc, char* argv[])
