@@ -13,9 +13,15 @@
 #include <boost/format.hpp>
 #include <boost/algorithm/string.hpp>
 
+#define MAX_SESSION 5
 
 using boost::asio::ip::tcp;
 using namespace std;
+
+boost::asio::io_context io_context;
+std::string host_name[MAX_SESSION];
+std::string port_number[MAX_SESSION];
+std::string file_name[MAX_SESSION];
 
 class Session
   : public std::enable_shared_from_this<Session>
@@ -44,12 +50,11 @@ class Session
                     if (!ec)
                     {
                         Parse_Request();
-                        Print_Request();
 
                         if (strcmp(REQUEST_CGI, "/panel.cgi") == 0)
-                            Show_Panel();
+                            Panel();
                         else
-                            Show_Console();
+                            Console();
                     }
                 });
         }
@@ -83,15 +88,12 @@ class Session
                 strcpy(QUERY_STRING, v[1].c_str());
             }
             else
-                strcpy(REQUEST_CGI,REQUEST_URI);            
-        }
+                strcpy(REQUEST_CGI,REQUEST_URI);           
 
-        void Print_Request()
-        {
             cout << "----------Environment--------" << endl;
             cout << "Method method: " << REQUEST_METHOD << endl;
             cout << "Request url: " << REQUEST_URI << endl;
-            cout << "Request CGI: " << REQUEST_CGI <<endl;
+            cout<<"Request CGI: "<<REQUEST_CGI<<endl;
             cout << "Query string: " << QUERY_STRING << endl;
             cout << "Server protocol: " << SERVER_PROTOCOL << endl;
             cout << "Http host: " << HTTP_HOST << endl;
@@ -99,10 +101,11 @@ class Session
             cout << "Server port: " << SERVER_PORT << endl;
             cout << "Remote addr: " << REMOTE_ADDR << endl;
             cout << "Remote port: " << REMOTE_PORT << endl;
-            cout << "-----------------------------" << endl;
+            cout << "-----------------------------" << endl; 
+
         }
 
-        void Show_Panel()
+        void Panel()
         {   
             cout<<"Show_Panel"<<endl;
             string html = 
@@ -204,34 +207,131 @@ class Session
             do_write(html);
         }
 
+        void Console()
+        {   
+            Parse_QUERY_STRING();
+            Show_Console();
+
+        }
+
+        void Parse_QUERY_STRING()
+        {
+            string q (QUERY_STRING);
+            vector<string> query;
+            boost::split(query, q, boost::is_any_of("&"), boost::token_compress_on);
+
+            for( vector<string>::iterator it = query.begin(); it != query.end(); ++ it )
+            {
+                if(it->at(0) == 'h')
+                {
+                    int id = it->at(1)-'0';
+                    host_name[id] = it->substr(it->find("=")+1);
+                }
+                if(it->at(0) == 'p')
+                {
+                    int id = it->at(1)-'0';
+                    port_number[id] = it->substr(it->find("=")+1);
+                }
+                if(it->at(0) == 'f')
+                {
+                    int id = it->at(1)-'0';
+                    file_name[id] = it->substr(it->find("=")+1);
+                }
+            }
+
+            cout << "----------Open Servers--------" << endl;
+            cout<<"\n";
+            for(int t = 0; t < MAX_SESSION; t++)
+            {
+                if(host_name[t] != "")
+                {
+                    cout<< "Server " << t << ": " << host_name[t]<<endl;
+                    cout<< "Port: " << port_number[t]<<endl;
+                    cout<< "File: " << file_name[t]<<endl;
+                    cout<< "\n";
+                }
+            }
+
+            cout << "-----------------------------" << endl;
+
+        }
+
         void Show_Console()
         {
-            string html =
+            string thead = {};
+            string tdata = {};
+            string html = 
             "HTTP/1.1 200 OK\r\n"
-            "Content-type: text/html\r\n\r\n"
-            "<html>\n"
-            "<head>\n"
-            "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=big5\" />\n"
-            "<link rel=\"icon\" href=\"data:;base64,iVBORw0KGgo=\">\n"
-            "<title>Network Programming Homework 3</title>\n"
-            "</head>\n"
-            "<body>\n"
-            "<font face=\"Courier New\" size=2 color=#FFFFFF>\n"
-            "<table>\n"
-            "<thead>\n"
-            "<tr id=\"tableHead\">\n"
-            "%1%"
-            "</tr>\n"
-            "</thead>\n"
-            "<tbody>\n"
-            "<tr id=\"tableBody\">\n"
-            "%2%"
-            "</tr>\n"
-            "</tbody>\n"
-            "<\table>\n"
-            "</font>\n"
-            "</body>\n"
-            "</html>\n";
+            "Content-type: text/html\r\n\r\n";
+
+            for(int i = 0; i < MAX_SESSION; i++)
+            {
+                if(host_name[i].empty())
+                    break;
+                thead += "<th scope=\"col\">" + host_name[i] + ":" + port_number[i] + "</th>\n";
+                tdata += "<td><pre id=\"s" + to_string(i) + "\" class=\"mb-0\"></pre></td>\n";
+            }
+
+            char s[4096];
+            sprintf(s, R"(
+            
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8" />
+                <title>NP Project 3 Sample Console</title>
+                <link
+                    rel="stylesheet"
+                    href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css"
+                    integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2"
+                    crossorigin="anonymous"
+                />
+                <link
+                    href="https://fonts.googleapis.com/css?family=Source+Code+Pro"
+                    rel="stylesheet"
+                />
+                <link
+                    rel="icon"
+                    type="image/png"
+                    href="https://cdn0.iconfinder.com/data/icons/small-n-flat/24/678068-terminal-512.png"
+                />
+                <style>
+                    * {
+                    font-family: 'Source Code Pro', monospace;
+                    font-size: 1rem !important;
+                    }
+                    body {
+                    background-color: #212529;
+                    }
+                    pre {
+                    color: #cccccc;
+                    }
+                    b {
+                    color: #01b468;
+                    }
+                </style>
+            </head>
+
+            <body>
+                <table class="table table-dark table-bordered">
+                    <thead>
+                    <tr>
+                        %s
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                        %s     
+                    </tr>
+                    </tbody>
+                </table>
+            </body>
+
+            </html>
+            )", thead.c_str(), tdata.c_str());
+
+            html += string(s);
+
             do_write(html);
 
         }
@@ -240,7 +340,6 @@ class Session
     enum { max_length = 1024 };
     char data_[max_length];
     char temp[max_length];
-    //char status_str[max_length] = "HTTP/1.1 200 OK\n";
     char REQUEST_METHOD[max_length];
     char REQUEST_URI[max_length];
     char REQUEST_CGI[max_length];
@@ -251,14 +350,13 @@ class Session
     char SERVER_PORT[max_length];
     char REMOTE_ADDR[max_length];
     char REMOTE_PORT[max_length];
-    char EXEC_FILE[max_length] = ".";
     char blackhole[max_length];
 };
 
 class CGI_server
 {
     public:
-    CGI_server(boost::asio::io_context& io_context, short port)
+    CGI_server(short port)
         : acceptor_(io_context, tcp::endpoint(tcp::v4(), port))
     {
         do_accept();
@@ -282,6 +380,21 @@ class CGI_server
     tcp::acceptor acceptor_;
 };
 
+class Server : public std::enable_shared_from_this<Server> 
+{
+
+
+    tcp::socket client_socket_;
+    tcp::socket server_socket_;
+    tcp::resolver resolv_;
+    tcp::resolver::query query_;
+    fstream file_;
+    enum { max_length = 1024 };
+    char data_[max_length];
+    int session_id;
+
+};
+
 int main(int argc, char* argv[])
 {
   try
@@ -292,9 +405,7 @@ int main(int argc, char* argv[])
       return 1;
     }
 
-    boost::asio::io_context io_context;
-
-    CGI_server s(io_context, std::atoi(argv[1]));
+    CGI_server s(std::atoi(argv[1]));
 
     cout<<"hi Window 11"<<endl;
 
