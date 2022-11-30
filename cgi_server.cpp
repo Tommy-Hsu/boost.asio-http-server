@@ -27,22 +27,22 @@ std::string file_name[MAX_SERVERS];
 class Server : public std::enable_shared_from_this<Server> 
 {
     private:
-        tcp::socket client_socket_; // 面對 client 端
+        shared_ptr<tcp::socket> client_socket_; // 面對 client 端
         tcp::socket server_socket_{io_context}; // 面對 server 端，還需被創造
         tcp::resolver resolv_{io_context};
         tcp::resolver::query query_;
         std::fstream file_;
-        enum { max_length = 20480 };
+        enum { max_length = 15000 };
         char data_[max_length];
         int serverid;
 
     public:
-        Server(tcp::socket socket, std::string host_n, std::string host_p, std::string file, int serverid)
-            : client_socket_(move(socket)), query_{host_n, host_p}, serverid(serverid)
+        Server(shared_ptr<tcp::socket> socket, std::string host_n, std::string host_p, std::string file, int serverid)
+            : client_socket_(socket), query_{host_n, host_p}, serverid(serverid)
         {
             file_.open("test_case/" + file, ios::in);
         }
-        void start() { do_resolve(); }
+        void start() { cout<<"np_server "<< to_string(serverid) << " is on......." <<endl;; do_resolve(); }
 
     private:
         void do_resolve() 
@@ -76,7 +76,7 @@ class Server : public std::enable_shared_from_this<Server>
         void do_read() 
         {
             auto self(shared_from_this());
-            server_socket_.async_read_some(boost::asio::buffer(data_, max_length),
+            server_socket_.async_receive(boost::asio::buffer(data_, max_length),
                 [this, self](boost::system::error_code ec, std::size_t length) 
             {
                 if (!ec)
@@ -84,27 +84,35 @@ class Server : public std::enable_shared_from_this<Server>
                     //cout<<" Server "<< serverid <<" keep reading..." <<endl;
                     bool iscmd = false;
                     string rec(data_, data_ + length);
+                    //cout<<" Server "<< serverid << "\n" << rec << endl;
                     //boost::asio::write(client_socket_, boost::asio::buffer(replace_string(rec, iscmd)));
-                    console_write(replace_string(rec, iscmd));
+                    //console_write(replace_string(rec, iscmd));
                     if (rec.find("% ") != string::npos)
-                    {
+                    {   
+                        console_write(replace_string(rec.substr(0,rec.find("%")), iscmd));
                         iscmd = true;
-                        string cmd;
-                        getline(file_, cmd);
+                        string cmd = "% ";
+                        string t;
+                        getline(file_, t);
+                        cmd += t;
+                        t += "\n";
                         cmd += "\n";
                         //boost::asio::write(client_socket_, boost::asio::buffer(replace_string(cmd, iscmd)));
                         console_write(replace_string(cmd, iscmd));
-                        server_socket_.write_some(boost::asio::buffer(cmd));
+                        server_socket_.write_some(boost::asio::buffer(t));
                     }
+                    else
+                         console_write(replace_string(rec, iscmd));
+                    do_read();
                 }
-                do_read();
+                
             });
         }
 
         void console_write(string resp)
         {
             auto self(shared_from_this());
-            client_socket_.async_write_some(boost::asio::buffer(resp, resp.length()),
+            client_socket_->async_write_some(boost::asio::buffer(resp, resp.length()),
             [this, self](boost::system::error_code ec, size_t length)
             {
                 if(!ec)
@@ -127,10 +135,12 @@ class Server : public std::enable_shared_from_this<Server>
             boost::replace_all(data, "\n", "&NewLine;");
             boost::replace_all(data, "<", "&lt;");
 
+            //cout<<serverid<<endl;
             if(iscmd)
                 data = "<script>document.getElementById('s" + to_string(serverid) + "').innerHTML += '<b>" + data + "</b>';</script>";
             else 
-                data = "<script>document.getElementById('s" + to_string(serverid) + "').innerHTML += '" + data + "';</script>";
+                data = "<script>document.all('s" + to_string(serverid) + "').innerHTML += '" + data + "';</script>";
+                // data = "<script>document.getElementById('s" + to_string(serverid) + "').innerHTML += '" + data + "';</script>";
 
             return data;
         }
@@ -326,10 +336,12 @@ class Session
             Parse_QUERY_STRING();
             Show_Console();
 
+            shared_ptr<tcp::socket> shared_client_ = make_shared<tcp::socket>(move(socket_));
+
             for(int i = 0; i < MAX_SERVERS; i++)
             {
                 if(host_name[i] != "")
-                    make_shared<Server>(move(socket_), host_name[i], port_number[i], file_name[i], i)->start();
+                    make_shared<Server>(shared_client_, host_name[i], port_number[i], file_name[i], i)->start();
             }
 
         }
@@ -500,8 +512,21 @@ class CGI_server
     tcp::acceptor acceptor_;
 };
 
+void signal_handler(int signum) 
+{
+    printf("signal_handler: caught signal %d\n", signum);
+    if (signum == SIGINT) 
+    {
+        printf("Ctrl+c Terminated CGI_server\n");
+        exit(1);
+    }
+}
+
 int main(int argc, char* argv[])
 {
+
+  signal(SIGINT, signal_handler);
+  
   try
   {
     if (argc != 2)
