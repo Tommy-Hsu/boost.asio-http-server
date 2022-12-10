@@ -11,6 +11,8 @@
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/replace.hpp>
+#include <boost/asio/deadline_timer.hpp>
+#include "boost/date_time/posix_time/posix_time.hpp"
 #include <boost/asio/buffer.hpp>
 #include <boost/asio.hpp>
 
@@ -22,6 +24,9 @@ std::string host_name[MAX_SESSION];
 std::string port_number[MAX_SESSION];
 std::string file_name[MAX_SESSION];
 std::vector <std::string> cmds[MAX_SESSION+1];
+
+boost::asio::io_context io_context;
+//boost::asio::deadline_timer timer{io_context};
 
 void Parse_QUERY_STRING()
 {
@@ -134,8 +139,8 @@ class Session : public std::enable_shared_from_this<Session>
 {
     private:
 
-      tcp::socket socket_;
-      tcp::resolver resolv_;
+      tcp::socket socket_{io_context};
+      tcp::resolver resolv_{io_context};
       
       enum { max_length = 1024 };
       char data_[max_length];
@@ -146,13 +151,14 @@ class Session : public std::enable_shared_from_this<Session>
       std::string file;
       int session_id;
       int cmd_idx;
+
+      boost::asio::deadline_timer timer{io_context};
+      //boost::asio::deadline_timer timer;
         
     public:
         // constructor && some info to init
-        Session(boost::asio::io_context& io_context, std::string host_n, std::string host_p, std::string file, int session_id)
-        : socket_(io_context)
-          , resolv_(io_context)
-          , host_n(host_n)
+        Session(std::string host_n, std::string host_p, std::string file, int session_id)
+        : host_n(host_n)
           , host_p(host_p)
           , query_{host_n, host_p}
           , file(file)
@@ -211,6 +217,30 @@ class Session : public std::enable_shared_from_this<Session>
                });
         }
 
+        void do_timer()
+        {
+            auto self(shared_from_this());
+            timer.async_wait([this, self](boost::system::error_code ec)
+            {
+               if(!ec)
+               {
+                  usleep(100000);
+                  std::string t = cmds[session_id][cmd_idx];
+                  replace_string(t);
+                  std::cout << "<script>document.getElementById('s" << session_id << "').innerHTML += '<b>" << t << "&NewLine;</b>';</script>" << std::endl;
+                  std::cout.flush();
+                  //output_command(std::to_string(s_id), cmds[s_id][cmd_idx]);
+
+                  usleep(100000);
+                  do_send_cmd();
+
+               }
+               else
+                  perror("why");
+
+            });
+        }
+
         void do_read() 
         {
             //cout<<"success to do_read()"<<endl; //還沒進去 server
@@ -235,16 +265,18 @@ class Session : public std::enable_shared_from_this<Session>
                         std::cout << "<script>document.getElementById('s" << session_id << "').innerHTML += '<b>" << "% " << "</b>';</script>" << std::endl;
                         std::cout.flush();
                         //output_prompt(std::to_string(s_id));
-                        usleep(100000);
-                        t = cmds[session_id][cmd_idx];
-                        replace_string(t);
-                        std::cout << "<script>document.getElementById('s" << session_id << "').innerHTML += '<b>" << t << "&NewLine;</b>';</script>" << std::endl;
-                        std::cout.flush();
-                        //output_command(std::to_string(s_id), cmds[s_id][cmd_idx]);
+                        timer.expires_from_now(boost::posix_time::seconds(2));
+                        do_timer();
+                        // usleep(100000);
+                        // t = cmds[session_id][cmd_idx];
+                        // replace_string(t);
+                        // std::cout << "<script>document.getElementById('s" << session_id << "').innerHTML += '<b>" << t << "&NewLine;</b>';</script>" << std::endl;
+                        // std::cout.flush();
+                        // //output_command(std::to_string(s_id), cmds[s_id][cmd_idx]);
 
-                        usleep(100000);
-                        do_send_cmd();
-                        //usleep(100000);
+                        // usleep(100000);
+                        // do_send_cmd();
+                        // //usleep(100000);
                     }
                     else
                     {
@@ -302,12 +334,12 @@ int main (int argc, char* argv[]) {
    {  
       Parse_QUERY_STRING();
       Show_HTML();
-      boost::asio::io_context io_context;
+      //boost::asio::io_context io_context;
       for (int i = 0; i < 5; i++)
       {
          if (host_name[i] == "")
             break;
-         std::make_shared<Session>(io_context, host_name[i], port_number[i], file_name[i], i)->start();
+         std::make_shared<Session>( host_name[i], port_number[i], file_name[i], i)->start();
       }
 
       io_context.run();
